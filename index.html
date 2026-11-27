@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Harbourside machine check</title>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #e7dcc6;
+      color: #1c1915;
+      font: 18px/1.4 "Segoe UI", system-ui, sans-serif;
+    }
+    main { max-width: 32rem; margin: 0 auto; padding: 1.25rem 1rem 3rem; }
+    h1 { font-size: 1.7rem; line-height: 1.15; margin: 0 0 .25rem; }
+    .lede { margin: 0 0 1rem; color: #3d3832; }
+    form, .card, .choice { background: #fffaf3; border: 2px solid #1c1915; border-radius: 12px; }
+    form { padding: 1rem; }
+    label { display: block; font-weight: 700; margin-bottom: .4rem; }
+    input {
+      width: 100%;
+      font: inherit;
+      padding: .8rem .9rem;
+      border: 2px solid #1c1915;
+      border-radius: 8px;
+      background: #fff;
+    }
+    button {
+      font: inherit;
+      font-weight: 700;
+      border: 2px solid #1c1915;
+      border-radius: 8px;
+      background: #163e78;
+      color: #fff;
+      min-height: 3.2rem;
+      padding: .6rem 1rem;
+      width: 100%;
+      margin-top: .75rem;
+    }
+    button.secondary { background: #fffaf3; color: #1c1915; }
+    .card { margin-top: 1rem; padding: 1rem; }
+    .verdict { font-size: 1.35rem; font-weight: 700; margin: 0; }
+    .verdict + .verdict { margin-top: .7rem; }
+    .bad { color: #8d1d2c; }
+    .ok { color: #0d6b3d; }
+    ul { list-style: none; padding: 0; margin: .8rem 0 0; }
+    li { display: flex; justify-content: space-between; gap: 1rem; padding: .45rem 0; border-top: 1px solid #e4d8c4; }
+    .slot { margin-top: .8rem; padding-top: .8rem; border-top: 1px solid #e4d8c4; }
+    .slot h2 { font-size: 1.05rem; margin: 0 0 .2rem; }
+    .muted { color: #5c564e; margin: .2rem 0; }
+    .choice { display: block; width: 100%; text-align: left; margin-top: .5rem; background: #fffaf3; color: #1c1915; }
+    .hidden { display: none; }
+    .foot { margin: 1rem 0 0; color: #5c564e; font-size: .95rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Harbourside machine check</h1>
+    <p class="lede">See if you can use a machine. No password.</p>
+    <form id="lookup">
+      <label for="who">Member number, name, or email</label>
+      <input id="who" name="who" autocomplete="off" autocapitalize="off" enterkeyhint="go">
+      <button type="submit">Check</button>
+      <p id="miss" class="bad hidden" role="status"></p>
+    </form>
+    <section id="picks" class="card hidden" aria-label="Which member"></section>
+    <section id="result" class="card hidden" aria-live="polite"></section>
+    <p class="foot">Nothing you type is saved. The check uses this week’s whiteboard, the sign-off binder, and the training list.</p>
+  </main>
+  <script src="records.js"></script>
+  <script src="check.js"></script>
+  <script>
+    const who = document.querySelector("#who");
+    const miss = document.querySelector("#miss");
+    const picks = document.querySelector("#picks");
+    const result = document.querySelector("#result");
+    const records = window.RECORDS;
+
+    function resetAnswer() {
+      miss.classList.add("hidden");
+      picks.classList.add("hidden");
+      result.classList.add("hidden");
+      picks.innerHTML = "";
+      result.innerHTML = "";
+    }
+
+    function esc(value) {
+      return String(value).replace(/[&<>"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[char]));
+    }
+
+    function showMember(member) {
+      const report = Harbour.explain(member, records.bookings, records.members, new Date());
+      const lines = report.sentences.map((sentence) => {
+        const bad = /can't|not signed|lapsed|waiting|parent has to/i.test(sentence);
+        return '<p class="verdict ' + (bad ? "bad" : "ok") + '">' + esc(sentence) + "</p>";
+      }).join("");
+      const signed = "<ul>" + report.signed.map((row) =>
+        "<li><span>" + row.label + "</span><strong class=\"" + (row.yes ? "ok" : "bad") + "\">" + (row.yes ? "Signed off" : "Not signed off") + "</strong></li>"
+      ).join("") + "</ul>";
+      const slots = report.cards.length
+        ? report.cards.map((card) => {
+            const state = card.when === "past" ? "Already passed" : card.when === "next" ? "Coming up" : "Today";
+            const problems = card.problems.map((line) => '<p class="bad">' + esc(line) + "</p>").join("");
+            const fine = card.problems.length ? "" : '<p class="ok">This booking fits the rules.</p>';
+            const note = card.note ? " (" + esc(card.note) + ")" : "";
+            return '<div class="slot"><h2>' + esc(card.day + " " + card.start + "–" + card.end + " · " + card.label) + "</h2><p class=\"muted\">" + esc(state + " · Board says " + card.text) + note + "</p>" + problems + fine + "</div>";
+          }).join("")
+        : '<p class="muted">Your name is not on this week’s whiteboard.</p>';
+      result.innerHTML = lines + signed + slots + '<button type="button" class="secondary" id="again">Check someone else</button>';
+      result.classList.remove("hidden");
+      document.querySelector("#again").addEventListener("click", () => {
+        who.value = "";
+        resetAnswer();
+        who.focus();
+      });
+      result.scrollIntoView({ block: "nearest" });
+    }
+
+    document.querySelector("#lookup").addEventListener("submit", (event) => {
+      event.preventDefault();
+      resetAnswer();
+      const matches = Harbour.find(who.value, records.members);
+      if (!matches.length) {
+        miss.textContent = "That doesn’t match a member. Use the number on your fob tag, or your full name.";
+        miss.classList.remove("hidden");
+        return;
+      }
+      if (matches.length === 1) {
+        showMember(matches[0]);
+        return;
+      }
+      picks.innerHTML = "<h2>Which one are you?</h2>" + matches.map((member) =>
+        '<button type="button" class="choice" data-id="' + member.id + '">' + esc(member.first + " " + member.last) + "</button>"
+      ).join("");
+      picks.classList.remove("hidden");
+      picks.querySelectorAll("button").forEach((button) => {
+        button.addEventListener("click", () => {
+          const member = records.members.find((person) => person.id === button.dataset.id);
+          picks.classList.add("hidden");
+          showMember(member);
+        });
+      });
+    });
+    who.focus();
+  </script>
+</body>
+</html>
