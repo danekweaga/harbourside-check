@@ -52,6 +52,8 @@ def norm(s):
 
 def family(machine):
     x = norm(machine)
+    if "big laser" in x:
+        return "biglaser"
     if "print" in x or x in ("3dp", "dp"):
         return "printer"
     if "cnc" in x or "router" in x:
@@ -108,6 +110,7 @@ with (DOWNLOADS / "member-list.csv").open(newline="", encoding="utf-8") as handl
             "membership": row["membership"],
             "status": row["status"],
             "youth": row["membership"] == "youth",
+            "parentId": row["linked_to"],
             "machines": [],
         })
 
@@ -147,21 +150,23 @@ with (DOWNLOADS / "training-waitlist.csv").open(newline="", encoding="utf-8") as
                 "note": row["notes"],
             })
 
+by_id = {person["id"]: person for person in members}
 for person in members:
     person.setdefault("waitlist", [])
     person["machines"] = sorted(person["machines"])
+    parent = by_id.get(person["parentId"])
+    person["parent"] = (parent["first"] + " " + parent["last"]) if parent else ""
 
 def link_name(raw):
     hits = best(members, raw, 80)
     if len(hits) == 1:
         return [hits[0]["id"]]
     tokens = [t for t in norm(raw).split() if t]
-    if len(tokens) >= 1:
+    if len(tokens) == 1:
         firsts = [m for m in members if norm(m["first"]) == tokens[0]]
-        initial = len(tokens) == 2 and len(tokens[1]) == 1
-        if len(firsts) == 1 and (len(tokens) == 1 or initial):
+        if len(firsts) == 1:
             return [firsts[0]["id"]]
-        if len(tokens) == 1 and len(firsts) > 1:
+        if len(firsts) > 1:
             return [m["id"] for m in firsts]
     return []
 
@@ -214,6 +219,7 @@ payload = {
         "email": m["email"],
         "status": m["status"],
         "youth": m["youth"],
+        "parent": m["parent"],
         "machines": m["machines"],
         "waitlist": m["waitlist"],
     } for m in members],

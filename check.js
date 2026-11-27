@@ -54,24 +54,35 @@
     return members.filter((member) => tokens.includes(member.first.toLowerCase()) && tokens.includes(member.last.toLowerCase()));
   }
 
+  function hasLaser(person) {
+    return (person.machines || []).includes("laser");
+  }
+
   function explain(member, bookings, members, now) {
     const byId = {};
     members.forEach((person) => { byId[person.id] = person; });
     const today = ymd(now);
     const open = [2, 3, 4, 6].includes(now.getDay());
     const dayName = now.toLocaleDateString("en-US", { weekday: "long" });
+    const machines = member.machines || [];
     const cards = bookings.filter((booking) => booking.people.includes(member.id)).map((booking) => {
       const problems = [];
       if (member.status === "lapsed") problems.push("Your membership has lapsed, so you can't use this machine.");
-      if (!(member.machines || []).includes(booking.machine)) problems.push("You are not signed off on " + MACHINE[booking.machine] + ".");
+      if (booking.machine === "laser" && !hasLaser(member) && machines.includes("biglaser")) {
+        problems.push("You are signed off on the big laser only. Walt has not confirmed that is the laser on the board.");
+      } else if (!machines.includes(booking.machine)) {
+        problems.push("You are not signed off on " + MACHINE[booking.machine] + ".");
+      }
       if (booking.hours > 2) problems.push("This is " + booking.hours + " hours. The limit is 2 hours a day on one machine.");
       if (booking.machine === "laser" && booking.start >= 18) {
-        const buddy = booking.people.some((id) => id !== member.id && (byId[id].machines || []).includes("laser"));
+        const buddy = booking.people.some((id) => id !== member.id && hasLaser(byId[id]));
         if (!buddy) problems.push("After 6:00 PM the laser needs a second person who is signed off, at the machine.");
       }
       let when = "today";
       if (booking.date < today) when = "past";
       if (booking.date > today) when = "next";
+      const rules = ["15 minutes late and this slot is free."];
+      if (booking.machine === "laser") rules.push("No PVC or vinyl. Don't leave it running.");
       return {
         when,
         day: booking.day,
@@ -81,33 +92,57 @@
         start: hourLabel(booking.start),
         end: hourLabel(booking.end),
         problems,
+        rules,
       };
     });
+
+    const leadCard = cards.find((card) => card.when === "next" && card.problems.length)
+      || cards.find((card) => card.when === "next")
+      || cards.find((card) => card.when === "today")
+      || cards[cards.length - 1];
+    let lead = member.first + " " + member.last + ". You are not on this week's whiteboard.";
+    let leadOk = false;
+    if (leadCard) {
+      const verdict = leadCard.problems.length ? leadCard.problems[0] : "That booking fits the rules.";
+      const passed = leadCard.when === "past" ? " That slot has passed." : "";
+      lead = member.first + " " + member.last + ". " + leadCard.day + " " + leadCard.start + "–" + leadCard.end + ", " + leadCard.label + ". The board says " + leadCard.text + ". " + verdict + passed;
+      leadOk = leadCard.problems.length === 0;
+    }
 
     const sentences = [];
     if (member.status === "lapsed") sentences.push("Your membership has lapsed. You can't book or use a machine.");
     if (!open) sentences.push("The shop is closed on " + dayName + ". You can't use a machine right now.");
-    else if (member.status !== "lapsed") sentences.push("The shop is open. You can use a machine you are signed off on, inside the rules.");
-    const nextProblem = cards.find((card) => card.when === "next" && card.problems.length);
-    if (nextProblem) {
-      sentences.push(nextProblem.day + " the board has you on the " + nextProblem.label.toLowerCase() + " from " + nextProblem.start + " to " + nextProblem.end + ". " + nextProblem.problems[0]);
+    else if (member.status !== "lapsed") sentences.push("The shop is open now.");
+    if (member.youth) {
+      const named = member.parent ? " The membership lists " + member.parent + "." : "";
+      sentences.push("You are a youth member. A parent has to be with you." + named);
     }
-    if (member.youth) sentences.push("You are a youth member. A parent has to be with you.");
-    (member.waitlist || []).filter((row) => !(member.machines || []).includes(row.machine)).forEach((row) => {
+    if (machines.includes("biglaser") && !hasLaser(member)) {
+      sentences.push("The binder says big laser, not the laser on the board. Walt has not confirmed those are the same machine.");
+    }
+    (member.waitlist || []).filter((row) => !machines.includes(row.machine)).forEach((row) => {
       const [year, month, day] = row.since.split("-").map(Number);
       const since = new Date(year, month - 1, day).toLocaleDateString("en-US", { month: "long", day: "numeric" });
       sentences.push("You are not signed off on " + MACHINE[row.machine] + " yet. You have been on the training list since " + since + ".");
     });
 
+    const unmatched = bookings.filter((booking) => booking.people.length === 0).map((booking) =>
+      booking.day + " " + hourLabel(booking.start) + "–" + hourLabel(booking.end) + " " + booking.label + ", board says " + booking.text + ". That name is not a member, so the booking is not confirmed."
+    );
+
     return {
       name: member.first + " " + member.last,
+      lead,
+      leadOk,
       sentences,
       signed: ["laser", "printer", "cnc", "saw"].map((key) => ({
         key,
         label: { laser: "Laser", printer: "3D printers", cnc: "CNC router", saw: "Table saw" }[key],
-        yes: (member.machines || []).includes(key),
+        yes: key === "laser" ? hasLaser(member) : machines.includes(key),
+        note: key === "laser" && machines.includes("biglaser") && !hasLaser(member) ? "Big laser only" : "",
       })),
       cards,
+      unmatched,
     };
   }
 

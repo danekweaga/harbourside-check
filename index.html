@@ -45,6 +45,8 @@
     .verdict + .verdict { margin-top: .7rem; }
     .bad { color: #8d1d2c; }
     .ok { color: #0d6b3d; }
+    .warn { color: #8a5a00; }
+    .name { font-size: 1.15rem; margin: 0 0 .35rem; }
     ul { list-style: none; padding: 0; margin: .8rem 0 0; }
     li { display: flex; justify-content: space-between; gap: 1rem; padding: .45rem 0; border-top: 1px solid #e4d8c4; }
     .slot { margin-top: .8rem; padding-top: .8rem; border-top: 1px solid #e4d8c4; }
@@ -67,7 +69,7 @@
     </form>
     <section id="picks" class="card hidden" aria-label="Which member"></section>
     <section id="result" class="card hidden" aria-live="polite"></section>
-    <p class="foot">Nothing you type is saved. The check uses this week’s whiteboard, the sign-off binder, and the training list.</p>
+    <p class="foot">Nothing you type is saved. This page keeps the practice names, member numbers, and sign-offs in the page itself. Anyone with the link can see that file. Phones and birth years are not in it. It lives on GitHub Pages, at no monthly cost.</p>
   </main>
   <script src="records.js"></script>
   <script src="check.js"></script>
@@ -90,31 +92,45 @@
       return String(value).replace(/[&<>"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[char]));
     }
 
-    function showMember(member) {
-      const report = Harbour.explain(member, records.bookings, records.members, new Date());
-      const lines = report.sentences.map((sentence) => {
-        const bad = /can't|not signed|lapsed|waiting|parent has to/i.test(sentence);
-        return '<p class="verdict ' + (bad ? "bad" : "ok") + '">' + esc(sentence) + "</p>";
-      }).join("");
-      const signed = "<ul>" + report.signed.map((row) =>
-        "<li><span>" + row.label + "</span><strong class=\"" + (row.yes ? "ok" : "bad") + "\">" + (row.yes ? "Signed off" : "Not signed off") + "</strong></li>"
-      ).join("") + "</ul>";
-      const slots = report.cards.length
-        ? report.cards.map((card) => {
-            const state = card.when === "past" ? "Already passed" : card.when === "next" ? "Coming up" : "Today";
-            const problems = card.problems.map((line) => '<p class="bad">' + esc(line) + "</p>").join("");
-            const fine = card.problems.length ? "" : '<p class="ok">This booking fits the rules.</p>';
-            const note = card.note ? " (" + esc(card.note) + ")" : "";
-            return '<div class="slot"><h2>' + esc(card.day + " " + card.start + "–" + card.end + " · " + card.label) + "</h2><p class=\"muted\">" + esc(state + " · Board says " + card.text) + note + "</p>" + problems + fine + "</div>";
-          }).join("")
-        : '<p class="muted">Your name is not on this week’s whiteboard.</p>';
-      result.innerHTML = lines + signed + slots + '<button type="button" class="secondary" id="again">Check someone else</button>';
-      result.classList.remove("hidden");
+    function againButton() {
+      return '<button type="button" class="secondary" id="again">Check someone else</button>';
+    }
+
+    function wireAgain() {
       document.querySelector("#again").addEventListener("click", () => {
         who.value = "";
         resetAnswer();
         who.focus();
       });
+    }
+
+    function showMember(member) {
+      const report = Harbour.explain(member, records.bookings, records.members, new Date());
+      const lines = report.sentences.map((sentence) => {
+        const bad = /can't|not signed|lapsed|waiting|parent has to|not confirmed|big laser/i.test(sentence);
+        return '<p class="' + (bad ? "bad" : "muted") + '">' + esc(sentence) + "</p>";
+      }).join("");
+      const signed = "<ul>" + report.signed.map((row) => {
+        const state = row.note ? "warn" : row.yes ? "ok" : "bad";
+        const word = row.note || (row.yes ? "Signed off" : "Not signed off");
+        return "<li><span>" + row.label + "</span><strong class=\"" + state + "\">" + esc(word) + "</strong></li>";
+      }).join("") + "</ul>";
+      const slots = report.cards.length
+        ? report.cards.map((card) => {
+            const state = card.when === "past" ? "Already passed" : card.when === "next" ? "Coming up" : "Today";
+            const problems = card.problems.map((line) => '<p class="bad">' + esc(line) + "</p>").join("");
+            const fine = card.problems.length ? "" : '<p class="ok">This booking fits the rules.</p>';
+            const rules = (card.rules || []).map((line) => '<p class="muted">' + esc(line) + "</p>").join("");
+            const note = card.note ? " (" + esc(card.note) + ")" : "";
+            return '<div class="slot"><h2>' + esc(card.day + " " + card.start + "–" + card.end + " · " + card.label) + "</h2><p class=\"muted\">" + esc(state + " · Board says " + card.text) + note + "</p>" + problems + fine + rules + "</div>";
+          }).join("")
+        : '<p class="muted">Your name is not on this week’s whiteboard.</p>';
+      const loose = report.unmatched.length
+        ? '<div class="slot"><h2>Names the board does not match</h2>' + report.unmatched.map((line) => '<p class="bad">' + esc(line) + "</p>").join("") + "</div>"
+        : "";
+      result.innerHTML = '<p class="verdict ' + (report.leadOk ? "ok" : "bad") + '">' + esc(report.lead) + "</p>" + againButton() + lines + signed + slots + loose;
+      result.classList.remove("hidden");
+      wireAgain();
       result.scrollIntoView({ block: "nearest" });
     }
 
