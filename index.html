@@ -69,16 +69,105 @@
     </form>
     <section id="picks" class="card hidden" aria-label="Which member"></section>
     <section id="result" class="card hidden" aria-live="polite"></section>
-    <p class="foot">Nothing you type is saved. This page keeps the practice names, member numbers, and sign-offs in the page itself. Anyone with the link can see that file. Phones and birth years are not in it. It lives on GitHub Pages, at no monthly cost.</p>
+    <p class="foot" id="source">Nothing you type is saved. Phones and birth years are not kept. The check runs on this phone.</p>
   </main>
   <script src="records.js"></script>
   <script src="check.js"></script>
+  <script src="sheets.js"></script>
   <script>
     const who = document.querySelector("#who");
     const miss = document.querySelector("#miss");
     const picks = document.querySelector("#picks");
     const result = document.querySelector("#result");
-    const records = window.RECORDS;
+    let records = window.RECORDS;
+    const source = document.querySelector("#source");
+
+    function keyify(label) {
+      return String(label || "").toLowerCase().replace(/[^a-z]/g, "");
+    }
+
+    function gvizObjects(payload) {
+      const cols = payload.table.cols.map((col) => keyify(col.label));
+      return (payload.table.rows || []).map((row) => {
+        const obj = {};
+        cols.forEach((key, index) => {
+          const cell = row.c && row.c[index];
+          if (!cell || (cell.v == null && cell.f == null)) {
+            obj[key] = "";
+            return;
+          }
+          if (typeof cell.v === "string" && cell.v.indexOf("Date(") === 0) {
+            const parts = cell.v.match(/\d+/g).map(Number);
+            obj[key] = parts[0] + "-" + String(parts[1] + 1).padStart(2, "0") + "-" + String(parts[2]).padStart(2, "0");
+            return;
+          }
+          obj[key] = cell.f != null ? String(cell.f) : String(cell.v);
+        });
+        return obj;
+      }).filter((row) => Object.keys(row).some((key) => row[key]));
+    }
+
+    function loadSheet(id) {
+      return new Promise((resolve, reject) => {
+        const callback = "gviz_" + Math.random().toString(36).slice(2);
+        const timer = setTimeout(() => {
+          delete window[callback];
+          reject(new Error("timeout"));
+        }, 8000);
+        window[callback] = (payload) => {
+          clearTimeout(timer);
+          delete window[callback];
+          resolve(gvizObjects(payload));
+        };
+        const script = document.createElement("script");
+        script.src = "https://docs.google.com/spreadsheets/d/" + id + "/gviz/tq?tqx=out:json;responseHandler:" + callback;
+        script.onerror = () => {
+          clearTimeout(timer);
+          reject(new Error("sheet"));
+        };
+        document.head.appendChild(script);
+      });
+    }
+
+    function rowsFromSaved(saved) {
+      const memberRows = saved.members.map((member) => ({
+        membernumber: member.id,
+        first: member.first,
+        last: member.last,
+        email: member.email,
+        status: member.status,
+        youth: member.youth ? "yes" : "",
+        parent: member.parent || "",
+      }));
+      const cardRows = [];
+      saved.members.forEach((member) => {
+        const name = member.first + " " + member.last;
+        (member.machines || []).forEach((machine) => cardRows.push({ type: "signoff", name, membernumber: member.id, machine, since: "", note: "" }));
+        (member.waitlist || []).forEach((item) => cardRows.push({ type: "waiting", name, membernumber: member.id, machine: item.machine, since: item.since, note: item.note || "" }));
+      });
+      return { memberRows, cardRows };
+    }
+
+    const sheets = window.SHEETS || {};
+    function tryLoad(id) {
+      return id ? loadSheet(id).catch(() => null) : Promise.resolve(null);
+    }
+    if (sheets.board || sheets.members || sheets.cards) {
+      Promise.all([tryLoad(sheets.members), tryLoad(sheets.cards), tryLoad(sheets.board)]).then((tables) => {
+        const baked = rowsFromSaved(window.RECORDS);
+        const memberRows = tables[0] || baked.memberRows;
+        const cardRows = tables[1] || baked.cardRows;
+        const boardRows = tables[2];
+        if (!boardRows) {
+          if (source) source.textContent = "Using this week's saved copy. The shop sheets are not public yet.";
+          return;
+        }
+        records = Harbour.buildFromTables(memberRows, cardRows, boardRows);
+        if (source) source.textContent = tables[0] && tables[1]
+          ? "Reading the shop sheets. Next week is typed there. Nobody has to publish code."
+          : "Reading the board sheet. Sign-offs are still this week's saved copy.";
+      });
+    }
 
     function resetAnswer() {
       miss.classList.add("hidden");

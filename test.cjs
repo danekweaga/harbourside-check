@@ -64,6 +64,15 @@ if (!loose.includes("Liam Paige") || !loose.includes("Wes") || !loose.includes("
 }
 
 if (Harbour.find("Wes", records.members).length !== 0) throw new Error("Wes should not match");
+const built = Harbour.buildFromTables(
+  [{ membernumber: "1088", first: "Jen", last: "Akerley", email: "jen.akerley21@example.com", status: "active", youth: "", parent: "" },
+   { membernumber: "1033", first: "Marcus", last: "Bell", email: "marcus.bell63@example.com", status: "active", youth: "", parent: "" }],
+  [{ type: "signoff", name: "Jen Akerley", membernumber: "1088", machine: "Laser", since: "", note: "" },
+   { type: "signoff", name: "Marcus Bell", membernumber: "1033", machine: "Laser", since: "", note: "" }],
+  [{ date: "2026-11-25", weekday: "Wednesday", machine: "Laser", start: "6:00 PM", end: "8:00 PM", nameonboard: "Jen A + Marcus", note: "" }]
+);
+const builtJen = Harbour.explain(built.members[0], built.bookings, built.members, friday);
+if (!builtJen.lead.includes("fits the rules")) throw new Error("Sheet rebuild: " + builtJen.lead);
 console.log("ok");
 console.log("JEN", jen);
 console.log("MOIRA", moira);
